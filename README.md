@@ -1,2 +1,2 @@
 # KG webinar
-Simple Implementation of KG using SAP HANA Triplestore
+Smart Advisory Companion enhanced to be consumed by SAP Joule Skills
