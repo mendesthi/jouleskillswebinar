@@ -1,7 +1,7 @@
 applications:
-  - name: kgwebinar
+  - name: jouleskillswebinar
     memory: 4G
-    disk_quota: 1G
+    disk_quota: 4G
     instances: 1
     buildpack: https://github.com/cloudfoundry/python-buildpack.git
     health-check-type: http
