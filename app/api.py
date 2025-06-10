@@ -1,5 +1,7 @@
 import os
 import configparser
+
+from datetime import datetime
 from flask import Flask, request, jsonify, json, Response
 from flask_cors import CORS
 from hana_ml import dataframe
@@ -12,12 +14,16 @@ from gen_ai_hub.proxy.core.proxy_clients import get_proxy_client
 # Check if the application is running on Cloud Foundry
 if 'VCAP_APPLICATION' in os.environ:
     # Running on Cloud Foundry, use environment variables
+    from app.utilities_hana import kmeans_and_tsne  # works in CF
+    
     hanaURL = os.getenv('DB_ADDRESS')
     hanaPort = os.getenv('DB_PORT')
     hanaUser = os.getenv('DB_USER')
     hanaPW = os.getenv('DB_PASSWORD')
 else:    
     # Not running on Cloud Foundry, read from config.ini file
+    from utilities_hana import kmeans_and_tsne  # works in local machine
+    
     config = configparser.ConfigParser()
     config.read('config.ini')
     hanaURL = config['database']['address']
