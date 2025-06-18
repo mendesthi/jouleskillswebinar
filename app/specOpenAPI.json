@@ -1,0 +1,630 @@
+{
+  "openapi": "3.0.2",
+  "info": {
+    "title": "Joule Skills Webinar API",
+    "version": "1.0.0",
+    "description": "Provides tools to manage your projects and incidents in the Smart Advisory Companion."
+  },
+  "servers": [
+    {
+      "url": "https://jouleskillswebinar.cfapps.eu12.hana.ondemand.com/",
+      "description": "Demo server"
+    }
+  ],
+  "tags": [
+    { "name": "Translation", "description": "Natural language translation endpoints" }
+  ],
+  "paths": {
+    "/translate_nl_to_sparql": {
+      "post": {
+        "tags": ["Translation"],
+        "summary": "Translate natural language to SPARQL",
+        "description": "Translates a natural language query into a SPARQL query using the configured ontology and templates.",
+        "operationId": "translateNlToSparql",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nl_query": {
+                    "type": "string",
+                    "description": "The natural language query to translate."
+                  }
+                },
+                "required": ["nl_query"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SPARQL query generated from the natural language input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sparql_query": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error in translation or missing input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/translate_nl_to_new": {
+      "post": {
+        "tags": ["Translation"],
+        "summary": "Translate natural language to new query",
+        "description": "Translates a natural language query into a new query format (SQL/SPARQL) using the configured ontology and templates.",
+        "operationId": "translateNlToNew",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nl_query": {
+                    "type": "string",
+                    "description": "The natural language query to translate."
+                  }
+                },
+                "required": ["nl_query"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Query generated from the natural language input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "final_query": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error in translation or missing input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/translate_and_execute": {
+      "post": {
+        "tags": ["Translation"],
+        "summary": "Translate natural language to query and execute it",
+        "description": "Translates a natural language query to SQL/SPARQL, executes it, and returns the results as a list.",
+        "operationId": "translateAndExecute",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nl_query": {
+                    "type": "string",
+                    "description": "The natural language query to translate and execute."
+                  }
+                },
+                "required": ["nl_query"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of query results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "type": "object" }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error in translation, execution, or missing input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/update_categories_and_projects": {
+      "post": {
+        "tags": ["Categories"],
+        "summary": "Update categories and assign projects to categories",
+        "description": "Updates the list of categories and assigns projects to categories. Expects a JSON object mapping project numbers to category names.",
+        "operationId": "updateCategoriesAndProjects",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "example": {
+                "12345": "Analytics",
+                "67890": "Integration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Categories and project categories updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No categories provided or invalid input.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_all_project_categories": {
+      "get": {
+        "tags": ["Categories"],
+        "summary": "Get all project-category assignments",
+        "description": "Retrieves all project-category assignments as a list.",
+        "operationId": "getAllProjectCategories",
+        "responses": {
+          "200": {
+            "description": "List of project-category assignments.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "project_number": { "type": "string" },
+                      "category": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_projects_by_architect_and_cluster": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get project counts by architect and cluster",
+        "description": "Returns the number of projects grouped by architect and cluster. Optionally filter by architect name.",
+        "operationId": "getProjectsByArchitectAndCluster",
+        "parameters": [
+          {
+            "name": "expert",
+            "in": "query",
+            "description": "Architect name to filter by.",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Projects by architect and cluster.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "architect": { "type": "string" },
+                      "cluster": { "type": "string" },
+                      "project_count": { "type": "integer" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_advisories_by_expert_and_category": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get advisories by expert and category",
+        "description": "Returns advisories grouped by category for a given expert.",
+        "operationId": "getAdvisoriesByExpertAndCategory",
+        "parameters": [
+          {
+            "name": "expert",
+            "in": "query",
+            "description": "Expert name (required).",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Advisories by category.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "advisories_by_category": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category": { "type": "string" },
+                          "projects": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid expert parameter.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/refresh_clusters": {
+      "post": {
+        "tags": ["Clusters"],
+        "summary": "Refresh clusters and cluster descriptions",
+        "description": "Refreshes the clusters and their descriptions, optionally filtering by start and end date.",
+        "operationId": "refreshClusters",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "start_date": { "type": "string", "format": "date", "description": "Start date for filtering (YYYY-MM-DD)" },
+                  "end_date": { "type": "string", "format": "date", "description": "End date for filtering (YYYY-MM-DD)" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Clusters refreshed successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_project_details": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get details for a specific project",
+        "description": "Retrieves details for a specific project by project number and optional schema name.",
+        "operationId": "getProjectDetails",
+        "parameters": [
+          {
+            "name": "schema_name",
+            "in": "query",
+            "description": "Schema name",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "project_number",
+            "in": "query",
+            "description": "Project number (required)",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Project number is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_clusters_description": {
+      "get": {
+        "tags": ["Clusters"],
+        "summary": "Get all cluster descriptions",
+        "description": "Retrieves the list of all cluster descriptions.",
+        "operationId": "getClustersDescription",
+        "responses": {
+          "200": {
+            "description": "List of cluster descriptions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "cluster_id": { "type": "integer" },
+                      "cluster_description": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_categories": {
+      "get": {
+        "tags": ["Categories"],
+        "summary": "Get all categories",
+        "description": "Retrieves the list of all available categories.",
+        "operationId": "getCategories",
+        "responses": {
+          "200": {
+            "description": "List of categories.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "category": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_clusters": {
+      "get": {
+        "tags": ["Clusters"],
+        "summary": "Get all clusters",
+        "description": "Retrieves the list of all clusters.",
+        "operationId": "getClusters",
+        "responses": {
+          "200": {
+            "description": "List of clusters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "cluster_id": { "type": "integer" },
+                      "cluster_name": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/insert_text_and_vector": {
+      "post": {
+        "tags": ["Text"],
+        "summary": "Insert text and its embedding vector",
+        "description": "Inserts a text and its embedding vector into the specified table.",
+        "operationId": "insertTextAndVector",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "schema_name": { "type": "string", "description": "Schema name" },
+                  "table_name": { "type": "string", "description": "Table name" },
+                  "text": { "type": "string", "description": "Text to embed and store" }
+                },
+                "required": ["text"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Text inserted successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/compare_text_to_existing": {
+      "post": {
+        "tags": ["Text"],
+        "summary": "Compare a new text's vector to existing stored vectors",
+        "description": "Compares the embedding vector of a new text to existing stored vectors and returns similarity results.",
+        "operationId": "compareTextToExisting",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "schema_name": { "type": "string", "description": "Schema name" },
+                  "query_text": { "type": "string", "description": "Text to compare" },
+                  "text_type": { "type": "string", "description": "Type of text" },
+                  "model_version": { "type": "string", "description": "Model version" }
+                },
+                "required": ["query_text"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Similarity results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Query text is required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get_all_projects": {
+      "get": {
+        "tags": ["Projects"],
+        "summary": "Get all projects",
+        "description": "Retrieves all projects from the database.",
+        "operationId": "getAllProjects",
+        "parameters": [
+          {
+            "name": "schema_name",
+            "in": "query",
+            "description": "Schema name",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All projects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "type": "object" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

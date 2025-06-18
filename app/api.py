@@ -1,8 +1,13 @@
 import os
 import configparser
 
+import requests
+from functools import wraps
+import jwt
+from jwt import PyJWKClient
+
 from datetime import datetime
-from flask import Flask, request, jsonify, json, Response
+from flask import Flask, request, jsonify, json, Response, abort
 from flask_cors import CORS
 from hana_ml import dataframe
 from langchain.prompts import PromptTemplate
@@ -20,6 +25,12 @@ if 'VCAP_APPLICATION' in os.environ:
     hanaPort = os.getenv('DB_PORT')
     hanaUser = os.getenv('DB_USER')
     hanaPW = os.getenv('DB_PASSWORD')
+    
+    XSUAA_URL = os.getenv("XSUAA_URL")  # e.g. https://<subdomain>.authentication.<region>.hana.ondemand.com
+    XSUAA_CLIENT_ID = os.getenv("XSUAA_CLIENT_ID")
+    XSUAA_CLIENT_SECRET = os.getenv("XSUAA_CLIENT_SECRET")
+    XSUAA_XSAPPNAME = os.getenv("XSUAA_XSAPPNAME")
+
 else:    
     # Not running on Cloud Foundry, read from config.ini file
     from utilities_hana import kmeans_and_tsne  # works in local machine
@@ -30,6 +41,42 @@ else:
     hanaPort = config['database']['port']
     hanaUser = config['database']['user']
     hanaPW = config['database']['password']
+
+    XSUAA_URL = config['xsuaa']['url']
+    XSUAA_CLIENT_ID = config['xsuaa']['clientid']
+    XSUAA_CLIENT_SECRET = config['xsuaa']['clientsecret']
+    XSUAA_XSAPPNAME = config['xsuaa']['appname']
+
+def get_xsuaa_public_key():
+    # Get the public key from XSUAA's JWKS endpoint
+    resp = requests.get(f"{XSUAA_URL}/token_keys")
+    jwks = resp.json()
+    return {key['kid']: key for key in jwks['keys']}
+
+def require_oauth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.headers.get("Authorization", None)
+        if not auth or not auth.startswith("Bearer "):
+            abort(401, description="Missing or invalid Authorization header")
+        token = auth.split(" ")[1]
+        try:
+            jwks_url = f"{XSUAA_URL}/token_keys"
+            jwks_client = PyJWKClient(jwks_url)
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            public_key = signing_key.key
+            decoded = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience=XSUAA_CLIENT_ID,
+                options={"verify_exp": True}
+            )
+            # Optionally: check scopes, xsappname, etc.
+        except Exception as e:
+            abort(401, description=f"Invalid token: {str(e)}")
+        return f(*args, **kwargs)
+    return decorated
 
 # Establish a connection to SAP HANA
 connection = dataframe.ConnectionContext(hanaURL, hanaPort, hanaUser, hanaPW)
@@ -95,6 +142,7 @@ def create_project_by_category_table_if_not_exists():
     cursor.close()  
     
 @app.route('/update_categories_and_projects', methods=['POST'])
+@require_oauth
 def update_categories_and_projects():
     data = request.get_json()
     categories = data
@@ -184,6 +232,7 @@ def update_categories_and_projects():
     return jsonify({"message": "Categories and project categories updated successfully"}), 200
 
 @app.route('/get_all_project_categories', methods=['GET'])
+@require_oauth
 def get_all_project_categories():
     # SQL query to retrieve all records from the PROJECT_BY_CATEGORY table
     sql_query = """
@@ -251,6 +300,7 @@ def create_clustering_table_if_not_exists():
     cursor.close()  
 
 @app.route('/refresh_clusters', methods=['POST'])
+@require_oauth
 def refresh_clusters():
     # # Retrieve start_date and end_date from URL arguments
     # start_date = request.args.get('start_date', '1900-01-01')  # Default to '1900-01-01' if not provided
@@ -292,6 +342,7 @@ def refresh_clusters():
     return jsonify({"message": "Clusters refreshed successfully"}), 200
 
 @app.route('/get_clusters', methods=['GET'])
+@require_oauth
 def get_clusters():
     # Ensure the CLUSTERING table exists
     create_clustering_table_if_not_exists()
@@ -315,6 +366,7 @@ def get_clusters():
     return jsonify(formatted_clusters), 200
 
 @app.route('/get_clusters_description', methods=['GET'])
+@require_oauth
 def get_clusters_description():
     # Ensure the CLUSTERING table exists
     create_clustering_table_if_not_exists()
@@ -336,6 +388,7 @@ def get_clusters_description():
     return jsonify(formatted_cluster_description), 200
 
 @app.route('/get_projects_by_architect_and_cluster', methods=['GET'])
+@require_oauth
 def get_projects_by_architect_and_cluster():
     # Retrieve the architect parameter from the URL
     expert = request.args.get('expert')
@@ -391,6 +444,7 @@ def create_table_if_not_exists(schema_name, table_name):
     
 # Step 3: Function to insert text and its embedding vector into the "TCM_SAMPLE" table
 @app.route('/insert_text_and_vector', methods=['POST'])
+@require_oauth
 def insert_text_and_vector():
 
     data = request.get_json()
@@ -417,6 +471,7 @@ def insert_text_and_vector():
 
 # Function to compare a new text's vector to existing stored vectors using COSINE_SIMILARITY
 @app.route('/compare_text_to_existing', methods=['POST'])
+@require_oauth
 def compare_text_to_existing():
     data = request.get_json()
     schema_name = data.get('schema_name', 'DBUSER')  # Default schema
@@ -455,6 +510,7 @@ def compare_text_to_existing():
     return jsonify({"similarities": results}), 200
 
 @app.route('/get_project_details', methods=['GET'])
+@require_oauth
 def get_project_details():
     schema_name = request.args.get('schema_name', 'DBUSER')
     project_number = request.args.get('project_number')
@@ -464,7 +520,7 @@ def get_project_details():
     
     # SQL query to join ADVISORIES and COMMENTS tables on project_number
     sql_query = f"""
-        SELECT a."architect", a."index" AS advisories_index, a."pcb_number", a."project_date", 
+        SELECT a."architect", a."index" AS advisories_index, a."pbc_number", a."project_date", 
                a."project_number", a."solution", a."topic",
                c."comment", c."comment_date", c."index" AS comments_index
         FROM {schema_name}.advisories4 a
@@ -480,13 +536,14 @@ def get_project_details():
     return jsonify({"project_details": results}), 200
 
 @app.route('/get_all_projects', methods=['GET'])
+@require_oauth
 def get_all_projects():
     schema_name = request.args.get('schema_name', 'DBUSER')  # Default schema
     
     # SQL query to retrieve all data from ADVISORIES and COMMENTS tables
     sql_query = f"""
         SELECT * FROM (
-            SELECT a."architect", a."index" AS advisories_index, a."pcb_number", a."project_date", 
+            SELECT a."architect", a."index" AS advisories_index, a."pbc_number", a."project_date", 
                    a."project_number", a."solution", a."topic",
                    c."comment", c."comment_date", c."index" AS comments_index,
                    ROW_NUMBER() OVER (PARTITION BY a."project_number" ORDER BY a."index") AS row_num
@@ -600,6 +657,7 @@ def execute_query_raw_helper(query, query_type='sparql', response_format='json')
         raise ValueError('Invalid query_type. Use "sparql" or "sql".')
 
 @app.route('/execute_query_raw', methods=['POST'])
+@require_oauth
 def execute_query_raw():
     try:
         query = request.data.decode('utf-8')
@@ -615,6 +673,7 @@ def execute_query_raw():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/execute_sparql_query', methods=['GET'])
+@require_oauth
 def execute_sparql_query():
     try:
         # Get the raw SQL query and format from the URL arguments
@@ -638,6 +697,7 @@ def execute_sparql_query():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/translate_nl_to_sparql', methods=['POST'])
+@require_oauth
 def translate_nl_to_sparql():
     try:    
         # Get the natural language query and ontology from the request body
@@ -707,6 +767,7 @@ def translate_nl_to_sparql():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/translate_nl_to_new', methods=['POST'])
+@require_oauth
 def translate_nl_to_new():
     try:
         data = request.get_json()
@@ -719,6 +780,7 @@ def translate_nl_to_new():
         return jsonify({'error': str(e)}), 400
 
 @app.route('/translate_and_execute', methods=['POST'])
+@require_oauth
 def translate_and_execute():
     try:
         data = request.get_json()
@@ -742,6 +804,7 @@ def translate_and_execute():
         return jsonify({"error": str(e)}), 400
     
 @app.route('/config', methods=['GET', 'POST'])
+@require_oauth
 def config():
     cursor = connection.connection.cursor()
     
@@ -799,6 +862,7 @@ def config():
     }), 200
     
 @app.route('/get_advisories_by_expert_and_category', methods=['GET'])
+@require_oauth
 def get_advisories_by_expert_and_category():
     expert = request.args.get('expert')
     
@@ -822,610 +886,11 @@ def get_advisories_by_expert_and_category():
     return jsonify({"advisories_by_category": results}), 200
 
 @app.route('/openapi.json', methods=['GET'])
+@require_oauth
 def openapi_spec():
-    openapi = {
-        "openapi": "3.0.0",
-        "info": {
-            "title": "Joule Skills Webinar API",
-            "version": "1.0.0"
-        },
-        "paths": {
-            "/update_categories_and_projects": {
-                "post": {
-                    "summary": "Update categories and assign projects to categories",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {"type": "string"}
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Categories and project categories updated successfully",
-                            "content": {
-                                "application/json": {}
-                            }
-                        },
-                        "400": {
-                            "description": "No categories provided",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_all_project_categories": {
-                "get": {
-                    "summary": "Get all project-category assignments",
-                    "responses": {
-                        "200": {
-                            "description": "List of project-category assignments",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_categories": {
-                "get": {
-                    "summary": "Get all categories",
-                    "responses": {
-                        "200": {
-                            "description": "List of categories",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/refresh_clusters": {
-                "post": {
-                    "summary": "Refresh clusters and cluster descriptions",
-                    "requestBody": {
-                        "required": False,
-                        "content": {
-                            "application/x-www-form-urlencoded": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "start_date": {"type": "string", "format": "date"},
-                                        "end_date": {"type": "string", "format": "date"}
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Clusters refreshed successfully",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_clusters": {
-                "get": {
-                    "summary": "Get all clusters",
-                    "responses": {
-                        "200": {
-                            "description": "List of clusters",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_clusters_description": {
-                "get": {
-                    "summary": "Get all cluster descriptions",
-                    "responses": {
-                        "200": {
-                            "description": "List of cluster descriptions",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_projects_by_architect_and_cluster": {
-                "get": {
-                    "summary": "Get project counts by architect and cluster",
-                    "parameters": [
-                        {
-                            "name": "expert",
-                            "in": "query",
-                            "schema": {"type": "string"},
-                            "required": False,
-                            "description": "Architect name"
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Projects by architect and cluster",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/insert_text_and_vector": {
-                "post": {
-                    "summary": "Insert text and its embedding vector",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "schema_name": {"type": "string"},
-                                        "table_name": {"type": "string"},
-                                        "text": {"type": "string"}
-                                    },
-                                    "required": ["text"]
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Text inserted successfully",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/compare_text_to_existing": {
-                "post": {
-                    "summary": "Compare a new text's vector to existing stored vectors",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "schema_name": {"type": "string"},
-                                        "query_text": {"type": "string"},
-                                        "text_type": {"type": "string"},
-                                        "model_version": {"type": "string"}
-                                    },
-                                    "required": ["query_text"]
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Similarity results",
-                            "content": {
-                                "application/json": {}
-                            }
-                        },
-                        "400": {
-                            "description": "Query text is required",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_project_details": {
-                "get": {
-                    "summary": "Get details for a specific project",
-                    "parameters": [
-                        {
-                            "name": "schema_name",
-                            "in": "query",
-                            "schema": {"type": "string"},
-                            "required": False,
-                            "description": "Schema name"
-                        },
-                        {
-                            "name": "project_number",
-                            "in": "query",
-                            "schema": {"type": "string"},
-                            "required": True,
-                            "description": "Project number"
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Project details",
-                            "content": {
-                                "application/json": {}
-                            }
-                        },
-                        "400": {
-                            "description": "Project number is required",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_all_projects": {
-                "get": {
-                    "summary": "Get all projects",
-                    "parameters": [
-                        {
-                            "name": "schema_name",
-                            "in": "query",
-                            "schema": {"type": "string"},
-                            "required": False,
-                            "description": "Schema name"
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "All projects",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/execute_query_raw": {
-                "post": {
-                    "summary": "Execute a raw SPARQL or SQL query",
-                    "parameters": [
-                        {
-                            "name": "query_type",
-                            "in": "query",
-                            "schema": {"type": "string", "enum": ["sparql", "sql"]},
-                            "required": False,
-                            "description": "Type of query: sparql or sql"
-                        },
-                        {
-                            "name": "format",
-                            "in": "query",
-                            "schema": {"type": "string", "enum": ["json", "csv"]},
-                            "required": False,
-                            "description": "Response format"
-                        }
-                    ],
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "text/plain": {
-                                "schema": {"type": "string"}
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Query result",
-                            "content": {
-                                "application/json": {},
-                                "text/csv": {}
-                            }
-                        },
-                        "400": {
-                            "description": "Error",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/execute_sparql_query": {
-                "get": {
-                    "summary": "Execute a SPARQL query",
-                    "parameters": [
-                        {
-                            "name": "query",
-                            "in": "query",
-                            "schema": {"type": "string"},
-                            "required": True,
-                            "description": "SPARQL query"
-                        },
-                        {
-                            "name": "format",
-                            "in": "query",
-                            "schema": {"type": "string", "enum": ["json", "csv"]},
-                            "required": False,
-                            "description": "Response format"
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "SPARQL query result",
-                            "content": {
-                                "application/json": {},
-                                "text/csv": {}
-                            }
-                        },
-                        "400": {
-                            "description": "Error",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/translate_nl_to_sparql": {
-                "post": {
-                    "summary": "Translate natural language to SPARQL",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "nl_query": {"type": "string"}
-                                    },
-                                    "required": ["nl_query"]
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "SPARQL query",
-                            "content": {
-                                "application/json": {}
-                            }
-                        },
-                        "400": {
-                            "description": "Error",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/translate_nl_to_new": {
-                "post": {
-                    "summary": "Translate natural language to new query",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "nl_query": {"type": "string"}
-                                    },
-                                    "required": ["nl_query"]
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Query result",
-                            "content": {
-                                "application/json": {}
-                            }
-                        },
-                        "400": {
-                            "description": "Error",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/translate_and_execute": {
-                "post": {
-                    "summary": "Translate natural language to query and execute it",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "nl_query": {"type": "string"}
-                                    },
-                                    "required": ["nl_query"]
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "List of query results",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object"
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        "400": {
-                            "description": "Error",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/config": {
-                "get": {
-                    "summary": "Get configuration",
-                    "responses": {
-                        "200": {
-                            "description": "Configuration",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                },
-                "post": {
-                    "summary": "Update configuration",
-                    "requestBody": {
-                        "required": True,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object"
-                                }
-                            }
-                        }
-                    },
-                    "responses": {
-                        "200": {
-                            "description": "Update result",
-                            "content": {
-                                "application/json": {}
-                            }
-                        }
-                    }
-                }
-            },
-            "/get_advisories_by_expert_and_category": {
-                "get": {
-                    "summary": "Get advisories by expert and category",
-                    "parameters": [
-                        {
-                            "name": "expert",
-                            "in": "query",
-                            "schema": {"type": "string"},
-                            "required": True,
-                            "description": "Expert name"
-                        }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Advisories by category",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "advisories_by_category": {
-                                                "type": "array",
-                                                "items": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "category": {"type": "string"},
-                                                        "projects": {"type": "integer"}
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        "400": {
-                            "description": "Missing or invalid expert parameter",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "error": {"type": "string"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "/": {
-                "get": {
-                    "summary": "Health check",
-                    "responses": {
-                        "200": {
-                            "description": "Health check response",
-                            "content": {
-                                "text/plain": {}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return jsonify(openapi)
+    with open(os.path.join(os.path.dirname(__file__), 'specOpenAPI.json')) as f:
+        spec = json.load(f)
+    return jsonify(spec)
 
 @app.route('/', methods=['GET'])
 def root():

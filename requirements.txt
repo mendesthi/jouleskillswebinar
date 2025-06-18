@@ -15,3 +15,7 @@ langchain_openai
 langchain_aws
 langchain_community
 aioboto3
+IPython
+requests
+PyJWT
+cryptography

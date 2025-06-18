@@ -1,0 +1,9 @@
+{
+  "xsappname": "jouleskillswebinar",
+  "tenant-mode": "dedicated",
+  "oauth2-configuration": {
+    "grant-types": [
+      "client_credentials"
+    ]
+  }
+}
